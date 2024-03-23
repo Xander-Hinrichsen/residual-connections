@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import torch.nn as nn
 
-def patch_reshape(tensor, patch_size=4):
+def patch_reshape(tensor, patch_size=8):
     # tensor shape: (batch, channels, h, w)
     batch, channels, h, w = tensor.shape
 
@@ -12,11 +12,12 @@ def patch_reshape(tensor, patch_size=4):
     patches = patches.unfold(3, patch_size, patch_size)
     # patches shape: (batch, channels, h/patch_size, w/patch_size, patch_size, patch_size)
 
-    # Reshape patches - permute is to ensure last dimension is channels, so all channel values per patch stick together
+    # Reshape patches
     patches = patches.permute(0,2,3,4,5,1).contiguous().view(batch, -1, channels * patch_size * patch_size)
     # patches shape: (batch, num_tokens, model_dim)
 
     return patches
+
 
 def zero_weights_fn(m):
     if type(m) == nn.Linear:
@@ -47,15 +48,17 @@ class encoder_layer(nn.Module):
             
 
 class ViT(nn.Module):
-    def __init__(self, d_model=512, nhead=8, dim_feedforward=1024, num_layers=7, include_residual=True, patch_size=4, img_shape=(32,32), num_classes=100, zero_weights=False):
+    def __init__(self, d_model=768, nhead=8, dim_feedforward=3042, num_layers=7, include_residual=True, patch_size=8, img_shape=(32,32), num_classes=100, zero_weights=False):
         super().__init__()
         self.patch_size = patch_size
-        self.num_tokens = 1+((img_shape[0]*img_shape[1])/(patch_size**2))
+        self.num_tokens = int(1+((img_shape[0]*img_shape[1])/(patch_size**2)))
         self.class_embedding = nn.Embedding(1,d_model)
         self.patch_projector = nn.Linear(3*(patch_size**2), d_model)
         self.learned_pe = nn.Embedding(self.num_tokens, d_model)
-        self.network = nn.TransformerEncoder(encoder_layer(d_model, nhead, dim_feedforward, include_residual=include_residual, zero_weights=zero_weights), num_layers)
-        self.linear_classifier = nn.Linear(d_model, num_classes)
+        self.network = nn.Sequential()
+        for _ in range(num_layers):
+            self.network.append(encoder_layer(d_model, nhead, dim_feedforward, include_residual=include_residual, zero_weights=zero_weights))
+        self.linear_classifier = nn.Sequential(nn.Linear(d_model, d_model//2), nn.ReLU(), nn.Linear(d_model//2, num_classes))
     def forward(self, x):
         ##view in patches
         x = patch_reshape(x) #shape of (batch, num_tokens, 3*(patch_size**2))
@@ -64,7 +67,7 @@ class ViT(nn.Module):
         x = self.patch_projector(x)
 
         ##concat the class embedding
-        x = torch.cat((self.class_embedding(torch.LongTensor([0]).to(x.device)).view(1,1,-1).repeat(x.shape[0],1,1), x))
+        x = torch.cat((self.class_embedding(torch.LongTensor([0]).to(x.device)).view(1,1,-1).repeat(x.shape[0],1,1), x), dim=1)
 
         ##add positional encodings
         x+=self.learned_pe(torch.arange(self.num_tokens).long().to(x.device))

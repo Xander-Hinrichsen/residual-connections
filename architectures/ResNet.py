@@ -45,14 +45,14 @@ class Resblock(nn.Module):
 class ResNet50(nn.Module):
     def __init__(self, include_residual=True, zero_weights=False, num_classes=100):
         super().__init__()
-        self.network = nn.Sequential()
+        self.network = nn.Sequential(nn.Conv2d(3,64, kernel_size=(3,3), padding=1))
         num_residblocks = [3,4,6,3]
         block_info = [[64,256],[128,512],[256,1024],[512,2048]]
         latest_out_featcount = 64
         for i in range(4): ##hard coded 4 because its the # of groups of different resblock types
             for j in range(num_residblocks[i]):
                 self.network.append(Resblock(latest_out_featcount,*block_info[i],
-                                        downsample= True if (j==0 and i > 0) else False), include_residual=include_residual, zero_weights=zero_weights)
+                                        downsample= True if (j==0 and i > 0) else False, include_residual=include_residual, zero_weights=zero_weights))
                 latest_out_featcount = block_info[i][-1]
         self.network.append(nn.AdaptiveAvgPool2d(1))
         
